@@ -55,17 +55,25 @@ const socket = new WebSocket("ws://localhost:8080");
 const players = new Map();
 let myId = null;
 
+socket.onopen = () => console.log("WS CONNECTED");
+socket.onerror = e => console.error("WS ERROR", e);
+socket.onclose = () => console.log("WS CLOSED");
+
 socket.onmessage = e => {
+  console.log("WS MESSAGE:", e.data);
+
   const data = JSON.parse(e.data);
 
   if (data.type === "init") {
     myId = data.id;
+    console.log("MY ID:", myId);
   }
 
   if (data.type === "state") {
     data.players.forEach(p => players.set(p.id, p));
   }
 };
+
 
 /* ================== INPUT ================== */
 const keys = {};
@@ -206,3 +214,4 @@ loop();
 </script>
 </body>
 </html>
+
