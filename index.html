@@ -1,17 +1,45 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <meta charset="UTF-8" />
-  <title>Moo-ish Game</title>
+  <meta charset="UTF-8">
+  <title>.io Game</title>
+
   <style>
-    body { margin: 0; background: #222; overflow: hidden; }
-    canvas { display: block; background: #3a7d3a; }
+    body {
+      margin: 0;
+      overflow: hidden;
+      background: #222;
+    }
+
+    canvas {
+      display: block;
+      background: #3a7d3a;
+    }
+
+    #leaderboard {
+      position: fixed;
+      top: 10px;
+      right: 10px;
+      background: rgba(0,0,0,0.6);
+      color: white;
+      padding: 10px;
+      font-family: monospace;
+      font-size: 14px;
+      min-width: 140px;
+    }
   </style>
 </head>
+
 <body>
+<div id="leaderboard"></div>
 <canvas id="game"></canvas>
 
 <script>
+/* ================== CONFIG ================== */
+const WORLD_SIZE = 5000;
+const PLAYER_RADIUS = 20;
+
+/* ================== CANVAS ================== */
 const canvas = document.getElementById("game");
 const ctx = canvas.getContext("2d");
 
@@ -22,139 +50,153 @@ function resize() {
 resize();
 window.addEventListener("resize", resize);
 
-// ===== PLAYER =====
-const player = {
-  x: 0,
-  y: 0,
-  r: 20,
-  speed: 4,
-  angle: 0,
+/* ================== NETWORK ================== */
+const socket = new WebSocket("ws://localhost:8080");
+const players = new Map();
+let myId = null;
 
-  // Swing data
-  swingAngle: 0,
-  swingSpeed: 0,
-  swinging: false
+socket.onmessage = e => {
+  const data = JSON.parse(e.data);
+
+  if (data.type === "init") {
+    myId = data.id;
+  }
+
+  if (data.type === "state") {
+    data.players.forEach(p => players.set(p.id, p));
+  }
 };
 
-const mouse = { x: 0, y: 0 };
+/* ================== INPUT ================== */
 const keys = {};
+const mouse = { x: 0, y: 0 };
 
-// ===== INPUT =====
 window.addEventListener("keydown", e => keys[e.key] = true);
 window.addEventListener("keyup", e => keys[e.key] = false);
-
 canvas.addEventListener("mousemove", e => {
   mouse.x = e.clientX;
   mouse.y = e.clientY;
 });
 
-canvas.addEventListener("mousedown", () => {
-  if (!player.swinging) {
-    player.swinging = true;
-    player.swingSpeed = 0.25; // how fast the swing snaps forward
-  }
-});
-
-// ===== CAMERA =====
-function getCameraOffset() {
+/* ================== CAMERA ================== */
+function getCamera(player) {
   return {
     x: canvas.width / 2 - player.x,
     y: canvas.height / 2 - player.y
   };
 }
 
-// ===== GRID =====
-function drawGrid(cam) {
-  const size = 50;
-  ctx.strokeStyle = "#2f6f2f";
-  ctx.lineWidth = 1;
-
-  const startX = Math.floor((-cam.x) / size) * size;
-  const startY = Math.floor((-cam.y) / size) * size;
-
-  for (let x = startX; x < -cam.x + canvas.width; x += size) {
-    ctx.beginPath();
-    ctx.moveTo(x + cam.x, 0);
-    ctx.lineTo(x + cam.x, canvas.height);
-    ctx.stroke();
-  }
-
-  for (let y = startY; y < -cam.y + canvas.height; y += size) {
-    ctx.beginPath();
-    ctx.moveTo(0, y + cam.y);
-    ctx.lineTo(canvas.width, y + cam.y);
-    ctx.stroke();
-  }
-}
-
-// ===== UPDATE =====
+/* ================== UPDATE ================== */
 function update() {
-  if (keys["w"]) player.y -= player.speed;
-  if (keys["s"]) player.y += player.speed;
-  if (keys["a"]) player.x -= player.speed;
-  if (keys["d"]) player.x += player.speed;
+  if (!players.has(myId)) return;
 
-  const cam = getCameraOffset();
+  const me = players.get(myId);
+  const cam = getCamera(me);
+
   const worldMouseX = mouse.x - cam.x;
   const worldMouseY = mouse.y - cam.y;
+  const angle = Math.atan2(worldMouseY - me.y, worldMouseX - me.x);
 
-  // Face the mouse
-  player.angle = Math.atan2(worldMouseY - player.y, worldMouseX - player.x);
+  socket.send(JSON.stringify({
+    w: keys.w,
+    a: keys.a,
+    s: keys.s,
+    d: keys.d,
+    angle
+  }));
+}
 
-  // Swing animation
-  if (player.swinging) {
-    player.swingAngle += player.swingSpeed;
-    player.swingSpeed -= 0.04;
+/* ================== DRAW GRID ================== */
+function drawGrid(cam) {
+  const size = 100;
+  ctx.strokeStyle = "#2f6f2f";
 
-    if (player.swingAngle <= 0) {
-      player.swingAngle = 0;
-      player.swinging = false;
-      player.swingSpeed = 0;
-    }
+  for (let x = -WORLD_SIZE; x <= WORLD_SIZE; x += size) {
+    ctx.beginPath();
+    ctx.moveTo(x + cam.x, -WORLD_SIZE + cam.y);
+    ctx.lineTo(x + cam.x, WORLD_SIZE + cam.y);
+    ctx.stroke();
+  }
+
+  for (let y = -WORLD_SIZE; y <= WORLD_SIZE; y += size) {
+    ctx.beginPath();
+    ctx.moveTo(-WORLD_SIZE + cam.x, y + cam.y);
+    ctx.lineTo(WORLD_SIZE + cam.x, y + cam.y);
+    ctx.stroke();
   }
 }
 
-// ===== DRAW PLAYER =====
-function drawPlayer(cam) {
-  const screenX = player.x + cam.x;
-  const screenY = player.y + cam.y;
+/* ================== DRAW PLAYER ================== */
+function drawPlayer(p, cam) {
+  const x = p.x + cam.x;
+  const y = p.y + cam.y;
 
   ctx.save();
-  ctx.translate(screenX, screenY);
-  ctx.rotate(player.angle + player.swingAngle);
+  ctx.translate(x, y);
+  ctx.rotate(p.angle);
 
-  // Body
+  // Body (brown)
   ctx.beginPath();
-  ctx.arc(0, 0, player.r, 0, Math.PI * 2);
-  ctx.fillStyle = "#d9d9d9";
-  ctx.fill();
-
-  // Weapon
+  ctx.arc(0, 0, PLAYER_RADIUS, 0, Math.PI * 2);
   ctx.fillStyle = "#8b5a2b";
-  ctx.fillRect(player.r, -4, 30, 8);
-
-  // Weapon tip
-  ctx.beginPath();
-  ctx.moveTo(player.r + 30, 0);
-  ctx.lineTo(player.r + 40, -6);
-  ctx.lineTo(player.r + 40, 6);
-  ctx.closePath();
-  ctx.fillStyle = "#ccc";
   ctx.fill();
+
+  // Weapon (horizontal)
+  ctx.fillStyle = "#654321";
+  ctx.fillRect(PLAYER_RADIUS, -4, 30, 8);
 
   ctx.restore();
 }
 
-// ===== DRAW =====
-function draw() {
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
+/* ================== LEADERBOARD ================== */
+function drawLeaderboard() {
+  const board = document.getElementById("leaderboard");
+  board.innerHTML = "<b>Leaderboard</b><br>";
 
-  const cam = getCameraOffset();
-  drawGrid(cam);
-  drawPlayer(cam);
+  players.forEach(p => {
+    board.innerHTML += `Player ${p.id.slice(0,4)}<br>`;
+  });
 }
 
-// ===== LOOP =====
+/* ================== MINIMAP ================== */
+function drawMiniMap() {
+  const size = 150;
+  const padding = 10;
+  const scale = size / (WORLD_SIZE * 2);
+
+  const x = canvas.width - size - padding;
+  const y = canvas.height - size - padding;
+
+  ctx.fillStyle = "rgba(0,0,0,0.6)";
+  ctx.fillRect(x, y, size, size);
+
+  players.forEach(p => {
+    const px = x + size / 2 + p.x * scale;
+    const py = y + size / 2 + p.y * scale;
+
+    ctx.fillStyle = p.id === myId ? "red" : "white";
+    ctx.fillRect(px - 2, py - 2, 4, 4);
+  });
+
+  ctx.strokeStyle = "white";
+  ctx.strokeRect(x, y, size, size);
+}
+
+/* ================== DRAW ================== */
+function draw() {
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  if (!players.has(myId)) return;
+
+  const cam = getCamera(players.get(myId));
+  drawGrid(cam);
+
+  players.forEach(p => drawPlayer(p, cam));
+
+  drawLeaderboard();
+  drawMiniMap();
+}
+
+/* ================== LOOP ================== */
 function loop() {
   update();
   draw();
