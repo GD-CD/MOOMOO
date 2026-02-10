@@ -1,16 +1,15 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <title>Mini MooMoo‑Style Game</title>
-  <style>
-    body { margin: 0; overflow: hidden; background: #87ceeb; }
-    canvas { display: block; }
-  </style>
+<meta charset="UTF-8">
+<title>Mini Moomoo.io Clone</title>
+<style>
+  body { margin: 0; overflow: hidden; background: #87ceeb; }
+  canvas { display: block; background: #87ceeb; }
+</style>
 </head>
 <body>
 <canvas id="game"></canvas>
-
 <script>
 const canvas = document.getElementById("game");
 const ctx = canvas.getContext("2d");
@@ -19,20 +18,22 @@ canvas.height = window.innerHeight;
 
 // Player
 const player = {
-  x: canvas.width / 2,
-  y: canvas.height / 2,
+  x: canvas.width/2,
+  y: canvas.height/2,
   size: 20,
-  speed: 3,
-  color: "#8B4513"
+  speed: 4,
+  color: "#8B4513",
+  resources: 0
 };
 
-// Trees (resources)
+// Resources (trees)
 const trees = [];
-for (let i = 0; i < 20; i++) {
+for(let i=0; i<25; i++){
   trees.push({
-    x: Math.random() * canvas.width,
-    y: Math.random() * canvas.height,
-    size: 25
+    x: Math.random()*canvas.width,
+    y: Math.random()*canvas.height,
+    size: 25,
+    health: 3
   });
 }
 
@@ -41,49 +42,131 @@ const keys = {};
 window.addEventListener("keydown", e => keys[e.key.toLowerCase()] = true);
 window.addEventListener("keyup", e => keys[e.key.toLowerCase()] = false);
 
+// Mouse position for attacks
+let mouse = {x: 0, y: 0};
+canvas.addEventListener("mousemove", e => {
+  const rect = canvas.getBoundingClientRect();
+  mouse.x = e.clientX - rect.left;
+  mouse.y = e.clientY - rect.top;
+});
+
+// Projectiles
+const bullets = [];
+
 // Movement
-function movePlayer() {
-  if (keys["w"]) player.y -= player.speed;
-  if (keys["s"]) player.y += player.speed;
-  if (keys["a"]) player.x -= player.speed;
-  if (keys["d"]) player.x += player.speed;
+function movePlayer(){
+  if(keys['w']) player.y -= player.speed;
+  if(keys['s']) player.y += player.speed;
+  if(keys['a']) player.x -= player.speed;
+  if(keys['d']) player.x += player.speed;
+
+  // Keep inside canvas
+  player.x = Math.max(player.size, Math.min(canvas.width-player.size, player.x));
+  player.y = Math.max(player.size, Math.min(canvas.height-player.size, player.y));
+}
+
+// Shooting
+canvas.addEventListener("click", () => {
+  bullets.push({
+    x: player.x,
+    y: player.y,
+    size: 5,
+    speed: 8,
+    dx: (mouse.x - player.x)/Math.hypot(mouse.x - player.x, mouse.y - player.y),
+    dy: (mouse.y - player.y)/Math.hypot(mouse.x - player.x, mouse.y - player.y),
+    color: "black"
+  });
+});
+
+// Update bullets
+function updateBullets(){
+  for(let i=bullets.length-1; i>=0; i--){
+    const b = bullets[i];
+    b.x += b.dx*b.speed;
+    b.y += b.dy*b.speed;
+
+    // Remove if off-screen
+    if(b.x < 0 || b.x > canvas.width || b.y < 0 || b.y > canvas.height){
+      bullets.splice(i,1);
+      continue;
+    }
+
+    // Hit trees
+    for(let t of trees){
+      const dist = Math.hypot(b.x - t.x, b.y - t.y);
+      if(dist < b.size + t.size){
+        t.health--;
+        bullets.splice(i,1);
+        if(t.health <= 0){
+          // Respawn tree somewhere else
+          t.x = Math.random()*canvas.width;
+          t.y = Math.random()*canvas.height;
+          t.health = 3;
+          player.resources += 1;
+        }
+        break;
+      }
+    }
+  }
 }
 
 // Drawing
-function drawPlayer() {
+function drawPlayer(){
   ctx.fillStyle = player.color;
   ctx.beginPath();
-  ctx.arc(player.x, player.y, player.size, 0, Math.PI * 2);
+  ctx.arc(player.x, player.y, player.size, 0, Math.PI*2);
   ctx.fill();
 }
 
-function drawTrees() {
-  trees.forEach(tree => {
+function drawTrees(){
+  trees.forEach(t=>{
     ctx.fillStyle = "#228B22";
     ctx.beginPath();
-    ctx.arc(tree.x, tree.y, tree.size, 0, Math.PI * 2);
+    ctx.arc(t.x, t.y, t.size, 0, Math.PI*2);
     ctx.fill();
   });
 }
 
-// Game loop
-function update() {
-  movePlayer();
+function drawBullets(){
+  bullets.forEach(b=>{
+    ctx.fillStyle = b.color;
+    ctx.beginPath();
+    ctx.arc(b.x, b.y, b.size, 0, Math.PI*2);
+    ctx.fill();
+  });
 }
 
-function draw() {
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
+// Game Loop
+function update(){
+  movePlayer();
+  updateBullets();
+}
+
+function draw(){
+  ctx.clearRect(0,0,canvas.width,canvas.height);
   drawTrees();
   drawPlayer();
+  drawBullets();
+
+  // HUD
+  ctx.fillStyle = "black";
+  ctx.font = "20px Arial";
+  ctx.fillText("Resources: "+player.resources, 10, 30);
 }
 
-function gameLoop() {
+function gameLoop(){
   update();
   draw();
   requestAnimationFrame(gameLoop);
 }
 
 gameLoop();
+
+// Resize canvas on window change
+window.addEventListener("resize", ()=>{
+  canvas.width = window.innerWidth;
+  canvas.height = window.innerHeight;
+});
 </script>
 </body>
 </html>
